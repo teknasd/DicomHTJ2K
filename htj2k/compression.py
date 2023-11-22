@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Union
 import tempfile
 import pydicom as dcm
-from pydicom.encaps import encapsulate
+from pydicom.encaps import encapsulate,decode_data_sequence
 import re
 
 class ProgressionOrder(Enum):
@@ -185,7 +185,74 @@ class HTJ2KBase():
             print("failed")
             raise ValueError(output.stderr.decode('utf-8'))
 
+    def decompress(self,
+        input_path : str,
+        output_path : str,
+        skip_res : Union[int, np.ndarray, tuple[int,int], list[int]] = None,
+        resilient : bool = False,
+        ) -> float:
+        """
+        Python wrapper for OpenJPH's :func:`ojph_expand`.
+
+        ## Arguments
+        input_path : str
+        input file name
+        output_path : str
+        output file name (either pgm or ppm)
+        skip_res : array-like, optional
+        x,y a comma-separated list of two elements containing the number of resolutions to skip. You can specify 1 or 2 parameters; the first specifies the number of resolution for which data reading is skipped. The second is the number of skipped resolution for reconstruction, which is either equal to the first or smaller. If the second is not specified, it is made to equal to the first. Defaults to None.
+        resilient : bool, optional
+        Makes decoder to be more tolerant of errors in the codestream. Defaults to False.
+
+        ## Returns
+        float : 
+        Time taken to decode image data.
+        """  
+        print("input_path:",input_path)
+        # Construct arguments using default values
+        args = [
+        './ojph_expand',
+        '-i', f'{input_path}',
+        '-o', f'{output_path}',
+        '-resilient', f'{resilient}'.lower(),
+        ]
+        # Add optional argument as needed
+        if skip_res:
+            # `skip_res` can be list of two numbrs or just a single number
+            if isinstance(skip_res, (list, tuple, np.ndarray)):
+                # Check if `skip_res` args are valid before append
+                if len(skip_res) != 2:
+                    raise ValueError('Invalid value! `skip_res` must be x,y a comma-separated list of two elements containign the number of resolutions to skip')
+                    args += [
+                    '-skip_res', f'{skip_res[0]},{skip_res[1]}'
+                    ]
+            else:
+                args += [
+                '-skip_res', f'{skip_res}'
+                ]
+
+        # Get the current working directory
+        original_cwd = os.getcwd()
+
+        # Change the CWD to your project's root directory
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        print(original_cwd,project_root)
+        os.chdir(project_root)
+        print("expand cmd: "," ".join(args))
+        # Execute `ojph_expand` in background
+        output = subprocess.run(
+            args, 
+            capture_output=True
+            )
+        os.chdir(original_cwd)
+        # If successful, return decode time. Otherwise raise error
+        if output.stdout:
+            return float(output.stdout.decode('utf-8').replace('Elapsed time = ', ''))
+        else:
+            print(output.stdout)
+            raise ValueError(output.stderr.decode('utf-8'))
         
+
 
 
   
@@ -193,7 +260,6 @@ class HTJ2KBase():
 
 
 class HTJ2K(HTJ2KBase):
-
     def __init__(self,path = None):
         if path:
             self.path = path
@@ -201,6 +267,7 @@ class HTJ2K(HTJ2KBase):
             self.base_path = os.path.abspath(os.getcwd())
             self.encoded_jph_path = f"{self.base_path}/data/encoded/{self.name}.jph"
             self.compressed_dicom_path = f"{self.base_path}/data/compressed/{self.name}.dcm"
+            self.decompressed_dicom_path = f"{self.base_path}/data/decompressed/{self.name}.dcm"
             print(self.base_path)
             # os.makedirs(f'../temp/encoded/', exist_ok=True)
 
@@ -282,8 +349,34 @@ class HTJ2K(HTJ2KBase):
 
 
 
-    def _decompress(self):
-        pass
+    def _decompress(self,
+        filename : str,
+        **kwargs
+        ) -> tuple[np.ndarray, float]:
+        """
+        Decodes HTJ2K bytestream into array containing image data using OpenJPH.
+
+        ## Arguments:
+        filename : str 
+            Input file name (either jph or j2c) 
+        **kwargs :
+            Modifies decoder parameters. See documentation for :func:`backend.ojph_expand`.
+
+        ## Returns:
+        np.ndarray :
+            An array containing image data.
+        float : 
+            Time taken to decode image data.
+        """
+        # Using temporary files to automatically clear intermediate pgm files
+        with tempfile.NamedTemporaryFile(suffix='.pgm', prefix='encode_') as temp:
+            # Decode to pgm using backend
+            decode_time = super().decompress(filename, temp.name, **kwargs)
+            # Read intermediate pgm file
+            img = cv2.imread(temp.name, cv2.IMREAD_UNCHANGED)
+            temp.flush()
+        return img, decode_time
+
 
 
     def compress(self):
@@ -296,7 +389,7 @@ class HTJ2K(HTJ2KBase):
             np.save(self.path.replace(".dcm",".npy"), img)
         else:
             img = np.load(f'{self.path}')
-        print(img.shape)
+        print(img.size,img.shape)
         filename = self.encoded_jph_path
         encode_time = self._compress(
         filename = filename,
@@ -336,7 +429,34 @@ class HTJ2K(HTJ2KBase):
 
 
     def decompress(self):
-        pass
+        if self.path.endswith(".dcm"):
+            dicom = dcm.dcmread(self.path)
+            print(dicom.file_meta.TransferSyntaxUID)
+            print(dicom.file_meta.TransferSyntaxUID.name)
+            print(dicom.BitsAllocated)
+            bin_pix_data = decode_data_sequence(dicom.PixelData)
+            print("list size: ",len(bin_pix_data),type(bin_pix_data))
+            print("byte size: ",len(bin_pix_data[0]),type(bin_pix_data[0]))
+            with tempfile.NamedTemporaryFile(suffix='.jph', prefix='encode_',mode='wb') as temp:
+                temp.write(bin_pix_data[0])
+                print("temp file stored at:", temp.name)
+                img, decode_time = self._decompress(temp.name)
+                temp.flush()
+            print(img.size,img.shape)
+            # frame_data = []
+            # frame_data.append(img)
+            
+            # encapsulated_data = encapsulate(frame_data)
+            dicom.PixelData = img.tobytes()
+            from pydicom.uid import JPEG2000,UID,ImplicitVRLittleEndian
+            dicom.file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
+            dicom.save_as(self.decompressed_dicom_path)
+
+            # return img, decode_time
+            # np.save(self.path.replace(".dcm",".npy"), img)
+        else:
+            img = np.load(f'{self.path}')
+        
 
 
 def decoded_bytes(filename):
