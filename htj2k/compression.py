@@ -198,7 +198,11 @@ class HTJ2K(HTJ2KBase):
         if path:
             self.path = path
             self.name = self.path.split("/")[-1].split(".")[0]
-            os.makedirs(f'../temp/encoded/', exist_ok=True)
+            self.base_path = os.path.abspath(os.getcwd())
+            self.encoded_jph_path = f"{self.base_path}/data/encoded/{self.name}.jph"
+            self.compressed_dicom_path = f"{self.base_path}/data/compressed/{self.name}.dcm"
+            print(self.base_path)
+            # os.makedirs(f'../temp/encoded/', exist_ok=True)
 
         self.encoder_params = {
         'num_decomps' : 5,
@@ -216,7 +220,7 @@ class HTJ2K(HTJ2KBase):
         }   
 
 
-    def _compress_npy(self,
+    def _compress(self,
         filename : str,
         img : np.ndarray, 
         strict : bool = False,
@@ -293,8 +297,8 @@ class HTJ2K(HTJ2KBase):
         else:
             img = np.load(f'{self.path}')
         print(img.shape)
-        filename = f'../data/encoded/{self.name}.jph'
-        encode_time = self._compress_npy(
+        filename = self.encoded_jph_path
+        encode_time = self._compress(
         filename = filename,
         img = img,
         strict = False,
@@ -316,24 +320,17 @@ class HTJ2K(HTJ2KBase):
         if type(encode_time) == float:
             frame_data = []
             print(os.getcwd())
-            filename = f'./data/encoded/{self.name}.jph'
-            # data = decoded_bytes(filename)
+            filename = self.encoded_jph_path    
             with open(filename, 'rb') as f:
                 data = f.read()
-
-            # print(data)
-            # print(data.shape)
-            # print(type(data))
-            # for d in data:
-            #     print(d)
-            #     print(type(d))
             frame_data.append(data)
             encapsulated_data = encapsulate(frame_data)
             dicom.PixelData = encapsulated_data
             from pydicom.uid import JPEG2000,UID 
             JPEG2000MCLossless = UID("1.2.840.10008.1.2.4.96")
             dicom.file_meta.TransferSyntaxUID = UID('HTJ2K')
-            dicom.save_as('./data/new.dcm')
+            # dicom.save_as('./data/new.dcm')
+            dicom.save_as(self.compressed_dicom_path)
 
         return encode_time
 
