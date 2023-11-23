@@ -385,10 +385,16 @@ class HTJ2K(HTJ2KBase):
             print(dicom.file_meta.TransferSyntaxUID)
             print(dicom.file_meta.TransferSyntaxUID.name)
             print(dicom.BitsAllocated)
+            print(dicom.ImageType)
+            print(f" -------- \n{dicom} \n-------------")
             img = dicom.pixel_array
+            unique, counts= np.unique(img, return_counts=True)
+            print(unique, counts) 
             np.save(self.path.replace(".dcm",".npy"), img)
         else:
             img = np.load(f'{self.path}')
+
+        self.raw_arr = img
         print(img.size,img.shape)
         filename = self.encoded_jph_path
         encode_time = self._compress(
@@ -434,6 +440,9 @@ class HTJ2K(HTJ2KBase):
             print(dicom.file_meta.TransferSyntaxUID)
             print(dicom.file_meta.TransferSyntaxUID.name)
             print(dicom.BitsAllocated)
+            print(dicom.ImageType)
+            print(dicom.SOPClassUID)
+            print(f" -------- \n{dicom} \n-------------")
             bin_pix_data = decode_data_sequence(dicom.PixelData)
             print("list size: ",len(bin_pix_data),type(bin_pix_data))
             print("byte size: ",len(bin_pix_data[0]),type(bin_pix_data[0]))
@@ -442,15 +451,24 @@ class HTJ2K(HTJ2KBase):
                 print("temp file stored at:", temp.name)
                 img, decode_time = self._decompress(temp.name)
                 temp.flush()
-            print(img.size,img.shape)
+            print(img.size,img.shape,img.dtype)
+            unique, counts= np.unique(img, return_counts=True)
+            print(unique, counts) 
             # frame_data = []
             # frame_data.append(img)
-            
-            # encapsulated_data = encapsulate(frame_data)
+            self.raw_arr = img
+            bin_pix_data = img.tobytes()
+            print("bin_pix_data",type(bin_pix_data),len(bin_pix_data))
+            frame_data = []
+            frame_data.append(bin_pix_data)
+            encapsulated_data = encapsulate(frame_data)
+            # dicom.PixelData = encapsulated_data #img.tobytes()
             dicom.PixelData = img.tobytes()
             from pydicom.uid import JPEG2000,UID,ImplicitVRLittleEndian
             dicom.file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
+            dicom[0x7FE0, 0x0010].VR = 'OW'
             dicom.save_as(self.decompressed_dicom_path)
+            print(f" -------- \n{dicom} \n-------------")
 
             # return img, decode_time
             # np.save(self.path.replace(".dcm",".npy"), img)
