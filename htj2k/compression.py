@@ -265,9 +265,9 @@ class HTJ2K(HTJ2KBase):
             self.path = path
             self.name = self.path.split("/")[-1].split(".")[0]
             self.base_path = os.path.abspath(os.getcwd())
-            self.encoded_jph_path = f"{self.base_path}/data/encoded/{self.name}.jph"
-            self.compressed_dicom_path = f"{self.base_path}/data/compressed/{self.name}.dcm"
-            self.decompressed_dicom_path = f"{self.base_path}/data/decompressed/{self.name}.dcm"
+            self.encoded_jph_path = f"{self.base_path}/data/encoded_{self.name}.jph"
+            self.compressed_dicom_path = f"{self.base_path}/data/{self.name}_comp.dcm"
+            self.decompressed_dicom_path = f"{self.base_path}/data/{self.name}_decom.dcm"
             print(self.base_path)
             # os.makedirs(f'../temp/encoded/', exist_ok=True)
 
