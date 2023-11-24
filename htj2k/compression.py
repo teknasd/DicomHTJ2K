@@ -430,7 +430,6 @@ class HTJ2K(HTJ2KBase):
             dicom.file_meta.TransferSyntaxUID = UID('HTJ2K')
             # dicom.save_as('./data/new.dcm')
             dicom.save_as(self.compressed_dicom_path)
-
         return encode_time
 
 
@@ -439,6 +438,8 @@ class HTJ2K(HTJ2KBase):
             dicom = dcm.dcmread(self.path)
             print(dicom.file_meta.TransferSyntaxUID)
             print(dicom.file_meta.TransferSyntaxUID.name)
+            if dicom.file_meta.TransferSyntaxUID.name != "HTJ2K":
+                raise TypeError("TransferSyntaxUID is not HTJ2K")
             print(dicom.BitsAllocated)
             print(dicom.ImageType)
             print(dicom.SOPClassUID)
@@ -469,46 +470,5 @@ class HTJ2K(HTJ2KBase):
             dicom[0x7FE0, 0x0010].VR = 'OW'
             dicom.save_as(self.decompressed_dicom_path)
             print(f" -------- \n{dicom} \n-------------")
-
-            # return img, decode_time
-            # np.save(self.path.replace(".dcm",".npy"), img)
         else:
             img = np.load(f'{self.path}')
-        
-
-
-def decoded_bytes(filename):
-  """
-  Calculates the number of bytes decoded using location of tile-part markers in bytestream
-
-  ## Arguments:
-  filename : str
-    Path to HTJ2K file
-
-  ## Returns:
-  array-like : 
-    Size (in bytes) for each tile-part arranged by progression order
-  """
-  SOT = b'\xff\x90'
-  EOI = b'\xff\xd9'
-  with open(filename, 'rb') as f:
-    bytes = np.array([i.start() for i in re.finditer(b'|'.join((SOT, EOI)), f.read())][1:])
-  return bytes
-  
-def subresolution(resolution, decomposition):
-  """
-  Calculates sub-resolution of decomposition
-
-  ## Arguments:
-  resolution : array-like
-    Resolution of image (x,y)
-  decomposition : int
-    Decomposition level (zero-indexed)
-
-  ## Returns:
-  array-like : 
-    Sub-resolution i.e resolution of image at given decomposition level (x,y)
-  """
-  x, y = resolution
-  return x // 2**decomposition, y // 2**decomposition
-
