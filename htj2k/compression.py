@@ -8,11 +8,23 @@ import tempfile
 import pydicom as dcm
 from pydicom.encaps import encapsulate,decode_data_sequence
 import re
+from pydicom.uid import JPEG2000,UID,ImplicitVRLittleEndian
+from pydicom._uid_dict import UID_dictionary
+import copy
+import warnings
+# https://dicom.nema.org/medical/dicom/current/output/html/part05.html#sect_8.2.14
+'''
+'1.2.840.10008.1.2.4.201': ('HTJ2K (Lossless Only)', 'Transfer Syntax', 'Default Transfer Syntax for DICOM', '', 'HTJ2K_Lossless_Only'),
+'1.2.840.10008.1.2.4.202': ('HTJ2K (Lossless RPCL)', 'Transfer Syntax', 'Default Transfer Syntax for DICOM', '', 'HTJ2K_Lossless_RPCL'),
+'1.2.840.10008.1.2.4.203': ('HTJ2K', 'Transfer Syntax', 'Default Transfer Syntax for DICOM', '', 'HTJ2K')
+'''
+
+HTJ2K_TRANSFER_SYNTAX_LIST_CODES = ['1.2.840.10008.1.2.4.201','1.2.840.10008.1.2.4.202','1.2.840.10008.1.2.4.203']
+HTJ2K_TRANSFER_SYNTAX_LIST_NAMES = ['HTJ2K (Lossless Only)','HTJ2K (Lossless RPCL)','HTJ2K', 'Transfer Syntax']
 
 class ProgressionOrder(Enum):
     """
     Collection of progression orders supported by OpenJPH.
-
     According to the JPEG 2000 codec, progression order lets you specify the order in which packets will appear in a given file and may have a significant impact on the time and memory usage required to encode and/or decode the image. Default is RPCL.
     """
     LRCP = 'LRCP'
@@ -30,10 +42,6 @@ class Tileparts(Enum):
     R = 'R'
     C = 'C'
     RC = 'RC'
-
-  
-
-
 
 class HTJ2KBase():
 
@@ -148,13 +156,13 @@ class HTJ2KBase():
             raise ValueError('Invalid value! `reversible` must be a boolean')
         # Add optional arguments as needed
         if precints:
-            args += ['-precints', __format_args(precints)]
+            args += ['-precints', self.__format_args(precints)]
         if tile_offset:
-            args += ['-tile_offset', __format_args(tile_offset)]  
+            args += ['-tile_offset', self.__format_args(tile_offset)]  
         if tile_size:
-            args += ['-tile_size', __format_args(tile_size)] 
+            args += ['-tile_size', self.__format_args(tile_size)] 
         if image_offset:
-            args += ['-image_offset', __format_args(image_offset)] 
+            args += ['-image_offset', self.__format_args(image_offset)] 
         if tileparts:
             args += ['-tileparts', tileparts.value]
         # Execute `ojph_compress` in background
@@ -252,15 +260,8 @@ class HTJ2KBase():
             print(output.stdout)
             raise ValueError(output.stderr.decode('utf-8'))
         
-
-
-
-  
-
-
-
 class HTJ2K(HTJ2KBase):
-    def __init__(self,path = None):
+    def __init__(self,path = None,verbose :bool = False):
         if path:
             self.path = path
             self.name = self.path.split("/")[-1].split(".")[0]
@@ -268,8 +269,7 @@ class HTJ2K(HTJ2KBase):
             self.encoded_jph_path = f"{self.base_path}/data/encoded_{self.name}.jph"
             self.compressed_dicom_path = f"{self.base_path}/data/{self.name}_comp.dcm"
             self.decompressed_dicom_path = f"{self.base_path}/data/{self.name}_decom.dcm"
-            print(self.base_path)
-            # os.makedirs(f'../temp/encoded/', exist_ok=True)
+            self.verbose = verbose
 
         self.encoder_params = {
         'num_decomps' : 5,
@@ -285,7 +285,6 @@ class HTJ2K(HTJ2KBase):
         'tileparts' : Tileparts.R,
         'tlm_marker' : True,
         }   
-
 
     def _compress(self,
         filename : str,
@@ -347,8 +346,6 @@ class HTJ2K(HTJ2KBase):
                 temp.flush()
             return encode_time
 
-
-
     def _decompress(self,
         filename : str,
         **kwargs
@@ -377,98 +374,115 @@ class HTJ2K(HTJ2KBase):
             temp.flush()
         return img, decode_time
 
-
-
     def compress(self):
         if self.path.endswith(".dcm"):
             dicom = dcm.dcmread(self.path)
-            print(dicom.file_meta.TransferSyntaxUID)
-            print(dicom.file_meta.TransferSyntaxUID.name)
-            print(dicom.BitsAllocated)
-            print(dicom.ImageType)
-            print(f" -------- \n{dicom} \n-------------")
+            if self.verbose: print(dicom.file_meta.TransferSyntaxUID)
+            if self.verbose: print(dicom.file_meta.TransferSyntaxUID.name)
+            if self.verbose: print(dicom.BitsAllocated)
+            if self.verbose: print(dicom.ImageType)
+            # print(f" -------- \n{dicom} \n-------------")
+            if self.verbose: print("size of PixelData :",len(dicom.PixelData))
             img = dicom.pixel_array
-            unique, counts= np.unique(img, return_counts=True)
-            print(unique, counts) 
-            np.save(self.path.replace(".dcm",".npy"), img)
+            # np.save(self.path.replace(".dcm",".npy"), img)
         else:
             img = np.load(f'{self.path}')
 
         self.raw_arr = img
-        print(img.size,img.shape)
-        filename = self.encoded_jph_path
+        if self.verbose: print(img.size,img.shape)
         encode_time = self._compress(
-        filename = filename,
-        img = img,
-        strict = False,
-        num_decomps = self.encoder_params['num_decomps'],
-        # qstep = encoder_params['qstep'],
-        reversible = self.encoder_params['reversible'],
-        # color_trans = encoder_params['color_trans'],
-        prog_order = self.encoder_params['prog_order'],
-        block_size = self.encoder_params['block_size'],
-        # precints = encoder_params['precints'],
-        # tile_offset = encoder_params['tile_offset'],
-        # tile_size = encoder_params['tile_size'],
-        # image_offset = encoder_params['image_offset'],
-        tileparts = self.encoder_params['tileparts'],
-        tlm_marker = self.encoder_params['tlm_marker'],
+            filename = self.encoded_jph_path,
+            img = img,
+            strict = False,
+            num_decomps = self.encoder_params['num_decomps'],
+            # qstep = encoder_params['qstep'],
+            reversible = self.encoder_params['reversible'],
+            # color_trans = encoder_params['color_trans'],
+            prog_order = self.encoder_params['prog_order'],
+            block_size = self.encoder_params['block_size'],
+            # precints = encoder_params['precints'],
+            # tile_offset = encoder_params['tile_offset'],
+            # tile_size = encoder_params['tile_size'],
+            # image_offset = encoder_params['image_offset'],
+            tileparts = self.encoder_params['tileparts'],
+            tlm_marker = self.encoder_params['tlm_marker'],
         )
-
 
         if type(encode_time) == float:
             frame_data = []
-            print(os.getcwd())
-            filename = self.encoded_jph_path    
-            with open(filename, 'rb') as f:
+            with open(self.encoded_jph_path, 'rb') as f:
                 data = f.read()
             frame_data.append(data)
             encapsulated_data = encapsulate(frame_data)
-            dicom.PixelData = encapsulated_data
-            from pydicom.uid import JPEG2000,UID 
-            JPEG2000MCLossless = UID("1.2.840.10008.1.2.4.96")
-            dicom.file_meta.TransferSyntaxUID = UID('HTJ2K')
-            # dicom.save_as('./data/new.dcm')
+            dicom.PixelData = encapsulated_data 
+            dicom.file_meta.TransferSyntaxUID = UID('1.2.840.10008.1.2.4.201')
+            dicom.is_little_endian = True
+            dicom.is_implicit_VR = False
             dicom.save_as(self.compressed_dicom_path)
+            # print(f" -------- SAVED DICOM FILE : \n{dicom} \n-------------")
         return encode_time
-
 
     def decompress(self):
         if self.path.endswith(".dcm"):
             dicom = dcm.dcmread(self.path)
-            print(dicom.file_meta.TransferSyntaxUID)
-            print(dicom.file_meta.TransferSyntaxUID.name)
-            if dicom.file_meta.TransferSyntaxUID.name != "HTJ2K":
-                raise TypeError("TransferSyntaxUID is not HTJ2K")
-            print(dicom.BitsAllocated)
-            print(dicom.ImageType)
-            print(dicom.SOPClassUID)
-            print(f" -------- \n{dicom} \n-------------")
+            if self.verbose: print(dicom.file_meta.TransferSyntaxUID)
+            if self.verbose: print(dicom.file_meta.TransferSyntaxUID.name)
+            if dicom.file_meta.TransferSyntaxUID not in HTJ2K_TRANSFER_SYNTAX_LIST_CODES:
+                raise TypeError(f"TransferSyntaxUID is not in {HTJ2K_TRANSFER_SYNTAX_LIST_CODES}")
+            if self.verbose: print(dicom.BitsAllocated)
+            if self.verbose: print(dicom.ImageType)
+            if self.verbose: print(dicom.SOPClassUID)
+            if self.verbose: print(f" -------- \n{dicom} \n-------------")
             bin_pix_data = decode_data_sequence(dicom.PixelData)
-            print("list size: ",len(bin_pix_data),type(bin_pix_data))
-            print("byte size: ",len(bin_pix_data[0]),type(bin_pix_data[0]))
+            if self.verbose: print("list size: ",len(bin_pix_data),type(bin_pix_data))
+            if self.verbose: print("byte size: ",len(bin_pix_data[0]),type(bin_pix_data[0]))
             with tempfile.NamedTemporaryFile(suffix='.jph', prefix='encode_',mode='wb') as temp:
                 temp.write(bin_pix_data[0])
-                print("temp file stored at:", temp.name)
+                if self.verbose: print("temp file stored at:", temp.name)
                 img, decode_time = self._decompress(temp.name)
                 temp.flush()
-            print(img.size,img.shape,img.dtype)
-            unique, counts= np.unique(img, return_counts=True)
-            print(unique, counts) 
-            # frame_data = []
-            # frame_data.append(img)
+            if self.verbose: print(img.size,img.shape,img.dtype)
             self.raw_arr = img
             bin_pix_data = img.tobytes()
-            print("bin_pix_data",type(bin_pix_data),len(bin_pix_data))
+            if self.verbose: print("bin_pix_data",type(bin_pix_data),len(bin_pix_data))
             frame_data = []
             frame_data.append(bin_pix_data)
             encapsulated_data = encapsulate(frame_data)
-            # dicom.PixelData = encapsulated_data #img.tobytes()
             dicom.PixelData = img.tobytes()
-            from pydicom.uid import JPEG2000,UID,ImplicitVRLittleEndian
+            # new_dicom = copy.deepcopy(dicom)
+            ''' some tags need to be changed as per dicom guidelines '''
+            # dicom[0x0008,0x0008] = dicom[0x0008,0x0008]
+            # dicom[0x0008,0x0016] = dicom[0x0008,0x0016]
+            # dicom[0x0008,0x0018] = dicom[0x0008,0x0018]
+            # dicom[0x0008,0x0020] = dicom[0x0008,0x0020]
+            # dicom[0x0008,0x0021] = dicom[0x0008,0x0021]
+            # dicom[0x0008,0x0022] = dicom[0x0008,0x0022]
+            # dicom[0x0008,0x0023] = dicom[0x0008,0x0023]
+            # dicom[0x0008,0x0030] = dicom[0x0008,0x0030]
+            # dicom[0x0008,0x0031] = dicom[0x0008,0x0031]
+            # dicom[0x0008,0x0032] = dicom[0x0008,0x0032]
+            # dicom[0x0008,0x0033] = dicom[0x0008,0x0033]
+            # dicom[0x0008,0x0060] = dicom[0x0008,0x0060]
+            # dicom[0x0008,0x0068] = dicom[0x0008,0x0068]
+            # dicom[0x0008,0x0070] = dicom[0x0008,0x0070]
+            # dicom[0x0008,0x1090] = dicom[0x0008,0x1090]
+            # dicom[0x0008,0x1155] = dicom[0x0008,0x1155]
+            # dicom[0x0008,0x2111] = dicom[0x0008,0x2111]
+            # dicom[0x0010,0x0010] = dicom[0x0010,0x0010] 
+            # dicom[0x0010,0x0020] = dicom[0x0010,0x0020] 
+            # dicom[0x0010,0x0030] = dicom[0x0010,0x0030] 
+            # dicom[0x0010,0x0040] = dicom[0x0010,0x0040] 
+            # dicom[0x0010,0x1010] = dicom[0x0010,0x1010]            
+            
+            # dicom[0x0018,0x0015]
+            # dicom[0x0018, 0x0060] = dicom[0x0018, 0x0060]
+            # dicom[0x0018, 0x1150]
+            # dicom[0x0002,0x0002] = dicom[0x0002,0x0002]
+
+
+            if self.verbose: print("size of PixelData :",len(dicom.PixelData))
             dicom.file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
-            dicom[0x7FE0, 0x0010].VR = 'OW'
             dicom.save_as(self.decompressed_dicom_path)
-            print(f" -------- \n{dicom} \n-------------")
+            # print(f" -------- \n{dicom} \n-------------")
         else:
             img = np.load(f'{self.path}')
