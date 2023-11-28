@@ -254,16 +254,18 @@ class HTJ2KBase():
             if self.verbose: print("Process failed")
             raise ValueError(output.stderr.decode('utf-8'))
         
-class HTJ2K(HTJ2KBase):
+class DicomHTJ2K(HTJ2KBase):
     def __init__(self,path = None,verbose :bool = False):
         if path:
             self.path = path
             self.name = self.path.split("/")[-1].split(".")[0]
-            self.base_path = os.path.abspath(os.getcwd())
-            self.encoded_jph_path = f"{self.base_path}/data/encoded_{self.name}.jph"
-            self.compressed_dicom_path = f"{self.base_path}/data/{self.name}_comp.dcm"
-            self.decompressed_dicom_path = f"{self.base_path}/data/{self.name}_decomp.dcm"
+            self.base_path = os.path.dirname(os.path.abspath(self.path))
+            self.encoded_jph_path = f"{self.base_path}/encoded_{self.name}.jph"
+            self.compressed_dicom_path = f"{self.base_path}/{self.name}_comp.dcm"
+            self.decompressed_dicom_path = f"{self.base_path}/{self.name}_decomp.dcm"
             self.verbose = verbose
+
+            if self.verbose: print("paths: ",self.path,self.name,self.base_path,self.encoded_jph_path,self.compressed_dicom_path,self.decompressed_dicom_path,sep="\n")
             super().__init__(verbose)
             self.already_compressed = False
 
