@@ -36,13 +36,11 @@ class ProgressionOrder(Enum):
 class Tileparts(Enum):
     """
     Collection of tilepart grouping supported by OpenJPH.
-
     According to the JPEG 2000 codec, tileparts define the group of packets that are written together. Tile parts can be grouped by resolution (R), layer, or component (C), depending on which progression order you use. By default, no grouping option is selected and the file is written sequentially.
     """
     R = 'R'
     C = 'C'
     RC = 'RC'
-
 class HTJ2KBase():
 
     def __init__(self,verbose):
@@ -367,7 +365,8 @@ class HTJ2K(HTJ2KBase):
             if self.verbose: print(dicom.BitsAllocated)
             if self.verbose: print(dicom.ImageType)
             # print(f" -------- \n{dicom} \n-------------")
-            if self.verbose: print("size of PixelData :",len(dicom.PixelData))
+            self.original_size = len(dicom.PixelData)
+            if self.verbose: print("size of PixelData :",self.original_size)
             img = dicom.pixel_array
             # np.save(self.path.replace(".dcm",".npy"), img)
         else:
@@ -375,26 +374,27 @@ class HTJ2K(HTJ2KBase):
 
         self.raw_arr = img
         if self.verbose: print(img.size,img.shape)
-
-
         self.encoder_params = {
             'num_decomps' : 5,
         }   
-        if tsyntax == "Lossy": # lossy htj2k compression
-            self.encoder_params['reversible'] = False
-            self.encoder_params['qstep'] = 0.0039
+        if tsyntax == "RPCL": # RPCL htj2k compression
+            self.encoder_params['reversible'] = True
+            self.encoder_params['tileparts'] = Tileparts.R
+            self.encoder_params['tlm_marker'] = True
+            self.encoder_params['prog_order'] = ProgressionOrder.RPCL
+            self.encoder_params['block_size'] = (32,32)
+            self.transfer_syntax = '1.2.840.10008.1.2.4.202'
         elif tsyntax == "Lossless":
             self.encoder_params['reversible'] = True
             self.encoder_params['tileparts'] = Tileparts.R
             self.encoder_params['tlm_marker'] = True
             self.encoder_params['prog_order'] = ProgressionOrder.RPCL
             self.encoder_params['block_size'] = (64,64)
-        else:
-            self.encoder_params['reversible'] = True
-            self.encoder_params['tileparts'] = Tileparts.R
-            self.encoder_params['tlm_marker'] : True
-            self.encoder_params['prog_order'] = ProgressionOrder.RPCL
-            self.encoder_params['block_size'] = (32,32)
+            self.transfer_syntax = '1.2.840.10008.1.2.4.201'
+        else: #Lossy
+            self.encoder_params['reversible'] = False
+            self.encoder_params['qstep'] = 0.0039
+            self.transfer_syntax = '1.2.840.10008.1.2.4.203'
         
 
 
@@ -412,11 +412,13 @@ class HTJ2K(HTJ2KBase):
                 data = f.read()
             frame_data.append(data)
             encapsulated_data = encapsulate(frame_data)
+            self.compressed_size = len(encapsulated_data)
             dicom.PixelData = encapsulated_data 
-            dicom.file_meta.TransferSyntaxUID = UID('1.2.840.10008.1.2.4.201')
+            dicom.file_meta.TransferSyntaxUID = UID(self.transfer_syntax)
             dicom.is_little_endian = True
             dicom.is_implicit_VR = False
             dicom.save_as(self.compressed_dicom_path)
+            self.compression_ratio = float(self.original_size) / self.compressed_size
             # print(f" -------- SAVED DICOM FILE : \n{dicom} \n-------------")
         return encode_time
 
