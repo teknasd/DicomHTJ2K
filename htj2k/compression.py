@@ -45,8 +45,8 @@ class Tileparts(Enum):
 
 class HTJ2KBase():
 
-    def __init__(self):
-        pass
+    def __init__(self,verbose):
+        self.verbose = verbose
 
     def __format_args(self,
         x : Union[np.ndarray, tuple, list],
@@ -126,7 +126,7 @@ class HTJ2KBase():
         float : 
             Time taken to encode image data.
         """  
-        print(os.getcwd())
+        if self.verbose: print(os.getcwd())
         # Construct arguments using default values
         args = [
             './ojph_compress',
@@ -179,18 +179,17 @@ class HTJ2KBase():
         )
         os.chdir(original_cwd)
         cmd = " ".join(args)
-        print(cmd)
-
-        print(output)
-        print(output.stdout)
+        if self.verbose: print(cmd)
+        if self.verbose: print(output)
+        if self.verbose: print(output.stdout)
         # return output.stdout
         # If successful, return encode time. Otherwise raise error
         if output.stdout:
             encode_time = float(output.stdout.decode('utf-8').replace('Elapsed time = ', ''))
-            print(f"encoded in ... {encode_time} secs")
+            if self.verbose: print(f"encoded in ... {encode_time} secs")
             return encode_time
         else:
-            print("failed")
+            if self.verbose: print("Process failed")
             raise ValueError(output.stderr.decode('utf-8'))
 
     def decompress(self,
@@ -216,7 +215,7 @@ class HTJ2KBase():
         float : 
         Time taken to decode image data.
         """  
-        print("input_path:",input_path)
+        if self.verbose: print("input_path:",input_path)
         # Construct arguments using default values
         args = [
         './ojph_expand',
@@ -244,9 +243,9 @@ class HTJ2KBase():
 
         # Change the CWD to your project's root directory
         project_root = os.path.dirname(os.path.abspath(__file__))
-        print(original_cwd,project_root)
+        if self.verbose: print(original_cwd,project_root)
         os.chdir(project_root)
-        print("expand cmd: "," ".join(args))
+        if self.verbose: print("expand cmd: "," ".join(args))
         # Execute `ojph_expand` in background
         output = subprocess.run(
             args, 
@@ -257,7 +256,7 @@ class HTJ2KBase():
         if output.stdout:
             return float(output.stdout.decode('utf-8').replace('Elapsed time = ', ''))
         else:
-            print(output.stdout)
+            if self.verbose: print("Process failed")
             raise ValueError(output.stderr.decode('utf-8'))
         
 class HTJ2K(HTJ2KBase):
@@ -270,6 +269,7 @@ class HTJ2K(HTJ2KBase):
             self.compressed_dicom_path = f"{self.base_path}/data/{self.name}_comp.dcm"
             self.decompressed_dicom_path = f"{self.base_path}/data/{self.name}_decomp.dcm"
             self.verbose = verbose
+            super().__init__(verbose)
 
     def _compress(self,
         filename : str,
@@ -327,7 +327,7 @@ class HTJ2K(HTJ2KBase):
                 cv2.imwrite(temp.name, img)
                 # Encode pgm using backend
                 encode_time = super().compress(temp.name, filename, **encoder_params)
-                print("encode_time >>>",encode_time)
+                if self.verbose: print("encode_time >>>",encode_time)
                 temp.flush()
             return encode_time
 
@@ -451,6 +451,7 @@ class HTJ2K(HTJ2KBase):
             if self.verbose: print("size of PixelData :",len(dicom.PixelData))
             dicom.file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
             dicom.save_as(self.decompressed_dicom_path)
+            return decode_time
             # print(f" -------- \n{dicom} \n-------------")
         else:
             img = np.load(f'{self.path}')
