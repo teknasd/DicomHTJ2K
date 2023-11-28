@@ -7,10 +7,7 @@ from typing import Union
 import tempfile
 import pydicom as dcm
 from pydicom.encaps import encapsulate,decode_data_sequence
-import re
-from pydicom.uid import JPEG2000,UID,ImplicitVRLittleEndian
-from pydicom._uid_dict import UID_dictionary
-import copy
+from pydicom.uid import UID,ImplicitVRLittleEndian
 import warnings
 # https://dicom.nema.org/medical/dicom/current/output/html/part05.html#sect_8.2.14
 '''
@@ -268,6 +265,7 @@ class HTJ2K(HTJ2KBase):
             self.decompressed_dicom_path = f"{self.base_path}/data/{self.name}_decomp.dcm"
             self.verbose = verbose
             super().__init__(verbose)
+            self.already_compressed = False
 
     def _compress(self,
         filename : str,
@@ -395,9 +393,6 @@ class HTJ2K(HTJ2KBase):
             self.encoder_params['reversible'] = False
             self.encoder_params['qstep'] = 0.0039
             self.transfer_syntax = '1.2.840.10008.1.2.4.203'
-        
-
-
 
         encode_time = self._compress(
             filename = self.encoded_jph_path,
@@ -405,7 +400,6 @@ class HTJ2K(HTJ2KBase):
             strict = False,
             encoder_params = self.encoder_params
         )
-
         if type(encode_time) == float:
             frame_data = []
             with open(self.encoded_jph_path, 'rb') as f:
@@ -419,12 +413,19 @@ class HTJ2K(HTJ2KBase):
             dicom.is_implicit_VR = False
             dicom.save_as(self.compressed_dicom_path)
             self.compression_ratio = float(self.original_size) / self.compressed_size
+            self.already_compressed = True
             # print(f" -------- SAVED DICOM FILE : \n{dicom} \n-------------")
         return encode_time
 
     def decompress(self):
-        if self.path.endswith(".dcm"):
-            dicom = dcm.dcmread(self.path)
+        if self.already_compressed:
+            path = self.compressed_dicom_path
+        else:
+            path = self.path
+        if self.verbose: print(f"path of compressed file: {path}")
+
+        if path.endswith(".dcm"):
+            dicom = dcm.dcmread(path)
             if self.verbose: print(dicom.file_meta.TransferSyntaxUID)
             if self.verbose: print(dicom.file_meta.TransferSyntaxUID.name)
             if dicom.file_meta.TransferSyntaxUID not in HTJ2K_TRANSFER_SYNTAX_LIST_CODES:
