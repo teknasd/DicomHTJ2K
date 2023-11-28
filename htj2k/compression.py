@@ -268,29 +268,14 @@ class HTJ2K(HTJ2KBase):
             self.base_path = os.path.abspath(os.getcwd())
             self.encoded_jph_path = f"{self.base_path}/data/encoded_{self.name}.jph"
             self.compressed_dicom_path = f"{self.base_path}/data/{self.name}_comp.dcm"
-            self.decompressed_dicom_path = f"{self.base_path}/data/{self.name}_decom.dcm"
+            self.decompressed_dicom_path = f"{self.base_path}/data/{self.name}_decomp.dcm"
             self.verbose = verbose
-
-        self.encoder_params = {
-        'num_decomps' : 5,
-        # 'qstep' : 0.0039,
-        'reversible' : True,
-        # 'color_trans' : True,
-        'prog_order' : ProgressionOrder.RPCL,
-        'block_size' : (32,32),
-        # 'precints' : None,
-        # 'tile_offset' : None,
-        # 'tile_size' : None,
-        # 'image_offset' : None,
-        'tileparts' : Tileparts.R,
-        'tlm_marker' : True,
-        }   
 
     def _compress(self,
         filename : str,
         img : np.ndarray, 
+        encoder_params : dict,
         strict : bool = False,
-        **kwargs,
         ) -> float:
             """
             Encodes array containing image data into HTJ2K bytestream using OpenJPH.
@@ -341,7 +326,7 @@ class HTJ2K(HTJ2KBase):
                 # Write intermediate pgm file
                 cv2.imwrite(temp.name, img)
                 # Encode pgm using backend
-                encode_time = super().compress(temp.name, filename, **kwargs)
+                encode_time = super().compress(temp.name, filename, **encoder_params)
                 print("encode_time >>>",encode_time)
                 temp.flush()
             return encode_time
@@ -374,7 +359,7 @@ class HTJ2K(HTJ2KBase):
             temp.flush()
         return img, decode_time
 
-    def compress(self):
+    def compress(self,tsyntax = 'HTJ2K'):
         if self.path.endswith(".dcm"):
             dicom = dcm.dcmread(self.path)
             if self.verbose: print(dicom.file_meta.TransferSyntaxUID)
@@ -390,22 +375,35 @@ class HTJ2K(HTJ2KBase):
 
         self.raw_arr = img
         if self.verbose: print(img.size,img.shape)
+
+
+        self.encoder_params = {
+            'num_decomps' : 5,
+        }   
+        if tsyntax == "Lossy": # lossy htj2k compression
+            self.encoder_params['reversible'] = False
+            self.encoder_params['qstep'] = 0.0039
+        elif tsyntax == "Lossless":
+            self.encoder_params['reversible'] = True
+            self.encoder_params['tileparts'] = Tileparts.R
+            self.encoder_params['tlm_marker'] = True
+            self.encoder_params['prog_order'] = ProgressionOrder.RPCL
+            self.encoder_params['block_size'] = (64,64)
+        else:
+            self.encoder_params['reversible'] = True
+            self.encoder_params['tileparts'] = Tileparts.R
+            self.encoder_params['tlm_marker'] : True
+            self.encoder_params['prog_order'] = ProgressionOrder.RPCL
+            self.encoder_params['block_size'] = (32,32)
+        
+
+
+
         encode_time = self._compress(
             filename = self.encoded_jph_path,
             img = img,
             strict = False,
-            num_decomps = self.encoder_params['num_decomps'],
-            # qstep = encoder_params['qstep'],
-            reversible = self.encoder_params['reversible'],
-            # color_trans = encoder_params['color_trans'],
-            prog_order = self.encoder_params['prog_order'],
-            block_size = self.encoder_params['block_size'],
-            # precints = encoder_params['precints'],
-            # tile_offset = encoder_params['tile_offset'],
-            # tile_size = encoder_params['tile_size'],
-            # image_offset = encoder_params['image_offset'],
-            tileparts = self.encoder_params['tileparts'],
-            tlm_marker = self.encoder_params['tlm_marker'],
+            encoder_params = self.encoder_params
         )
 
         if type(encode_time) == float:
@@ -443,43 +441,13 @@ class HTJ2K(HTJ2KBase):
                 temp.flush()
             if self.verbose: print(img.size,img.shape,img.dtype)
             self.raw_arr = img
-            bin_pix_data = img.tobytes()
-            if self.verbose: print("bin_pix_data",type(bin_pix_data),len(bin_pix_data))
-            frame_data = []
-            frame_data.append(bin_pix_data)
-            encapsulated_data = encapsulate(frame_data)
+            ## different way to convert img to bytes
+            # bin_pix_data = img.tobytes()
+            # if self.verbose: print("bin_pix_data",type(bin_pix_data),len(bin_pix_data))
+            # frame_data = []
+            # frame_data.append(bin_pix_data)
+            # encapsulated_data = encapsulate(frame_data)
             dicom.PixelData = img.tobytes()
-            # new_dicom = copy.deepcopy(dicom)
-            ''' some tags need to be changed as per dicom guidelines '''
-            # dicom[0x0008,0x0008] = dicom[0x0008,0x0008]
-            # dicom[0x0008,0x0016] = dicom[0x0008,0x0016]
-            # dicom[0x0008,0x0018] = dicom[0x0008,0x0018]
-            # dicom[0x0008,0x0020] = dicom[0x0008,0x0020]
-            # dicom[0x0008,0x0021] = dicom[0x0008,0x0021]
-            # dicom[0x0008,0x0022] = dicom[0x0008,0x0022]
-            # dicom[0x0008,0x0023] = dicom[0x0008,0x0023]
-            # dicom[0x0008,0x0030] = dicom[0x0008,0x0030]
-            # dicom[0x0008,0x0031] = dicom[0x0008,0x0031]
-            # dicom[0x0008,0x0032] = dicom[0x0008,0x0032]
-            # dicom[0x0008,0x0033] = dicom[0x0008,0x0033]
-            # dicom[0x0008,0x0060] = dicom[0x0008,0x0060]
-            # dicom[0x0008,0x0068] = dicom[0x0008,0x0068]
-            # dicom[0x0008,0x0070] = dicom[0x0008,0x0070]
-            # dicom[0x0008,0x1090] = dicom[0x0008,0x1090]
-            # dicom[0x0008,0x1155] = dicom[0x0008,0x1155]
-            # dicom[0x0008,0x2111] = dicom[0x0008,0x2111]
-            # dicom[0x0010,0x0010] = dicom[0x0010,0x0010] 
-            # dicom[0x0010,0x0020] = dicom[0x0010,0x0020] 
-            # dicom[0x0010,0x0030] = dicom[0x0010,0x0030] 
-            # dicom[0x0010,0x0040] = dicom[0x0010,0x0040] 
-            # dicom[0x0010,0x1010] = dicom[0x0010,0x1010]            
-            
-            # dicom[0x0018,0x0015]
-            # dicom[0x0018, 0x0060] = dicom[0x0018, 0x0060]
-            # dicom[0x0018, 0x1150]
-            # dicom[0x0002,0x0002] = dicom[0x0002,0x0002]
-
-
             if self.verbose: print("size of PixelData :",len(dicom.PixelData))
             dicom.file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
             dicom.save_as(self.decompressed_dicom_path)
