@@ -1,6 +1,6 @@
 
 ## What is DicomHTJ2K ?
-This is python tool to encode and decode High-Throughput JPEG 2000 (HTJ2K) dicoms. Based on [OpenJPH](https://github.com/aous72/OpenJPH) which is written in C++. DicomHTJ2K package coming soon...
+This is python tool to encode and decode High-Throughput JPEG 2000 (HTJ2K) dicoms. Based on [OpenJPH](https://github.com/aous72/OpenJPH) which is written in C++ and [openjphpy](https://github.com/UM2ii/openjphpy) which is a py wrapper. DicomHTJ2K package coming soon...
 
 
 **Note: This is an experimental repository.**
